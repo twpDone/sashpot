@@ -4,6 +4,8 @@ import socket
 import paramiko
 import sys
 import signal
+from datetime import datetime
+import json
 
 IP=""
 PORT=22
@@ -41,11 +43,41 @@ host_key = paramiko.RSAKey(filename='/root/.ssh/id_rsa')
 class Server (paramiko.ServerInterface):
     def _init_(self):
         self.event = threading.Event()
+        self.addr = None
+        self.port = None
+        self.count = 1
+    def setAddr(self,addr):
+        print("set addr !")
+        self.addr=str(addr[0])
+        self.port=int(addr[1])
     def check_channel_request(self, kind, chanid):
         if kind == 'session':
             return paramiko.OPEN_SUCCEEDED
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
     def check_auth_password(self, username, password):
+        print("Auth !")
+        data = {}
+        data['username'] = username
+        data['password'] = password
+        if self.addr.startswith('::ffff:'):
+            data['src_ip'] = str(self.addr).replace('::ffff:','')
+        else:
+            data['src_ip'] = self.addr
+        data['src_port'] = self.port
+        data['timestamp'] = datetime.isoformat(datetime.utcnow())
+        #data['try'] = int(self.count)
+        #       self.count += 1
+        #        try:
+        #            rversion = self.transport.remote_version.split('-', 2)[2]
+        #            data['software_version'] = rversion
+        #        except:
+        #            data['software_version'] = self.transport.remote_version
+        #            pass
+        #       data['cipher'] = self.transport.remote_cipher
+        #       data['mac'] = self.transport.remote_mac
+        fl=open("./logfile","a")
+        fl.write(json.dumps(data) + '\n')
+        fl.close()
         print("Try : "+username+"/"+password)
         if (username == 'root') and (password == 'toor'):
             return paramiko.AUTH_FAILED
@@ -54,6 +86,7 @@ class Server (paramiko.ServerInterface):
     def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
         return False
     def check_channel_shell_request(self, channel):
+        self.event.set()
         return False
 def runServer(IP,PORT):
     try:
@@ -88,20 +121,21 @@ def getAClient(sock):
             raise
         t.add_server_key(host_key)
         server = Server()
+        server.setAddr(addr)
         try:
             t.start_server(server=server)
         except paramiko.SSHException, x:
             print('[-] SSH negotiation failed.')
 
         chan = t.accept(TIMEOUT)
+        if chan is None:
+            print('*** No channel.')
+            return False
         #print('[+] SSH client Connected !')
-        try:
-            dfordata=chan.recv(2024)
-            print(str(dfordata))
-            chan.send('Yeah i can see this')
-        except AttributeError as ex:
-            print("[ ] Time out")
-            t.close()
+
+        #chan.send('Happy birthday !\r\n\r\n')
+        chan.close()
+        return True
     except socket.error as e:
         print('[-] Client connected but socket was closed')
         try:
@@ -109,14 +143,16 @@ def getAClient(sock):
             client.close()
         except:
             pass
-    except Exception, e:
-        print('[-] Caught exception: '+str(type(e))+ str(e))
-        try:
-            t.close()
-            client.close()
-            sock.close()
-        except:
-            pass
+#    except AttributeError as ex:
+#        print("[ ] Time out")
+#    except Exception, e:
+#        print('[-] Caught exception: '+str(type(e))+ str(e))
+#        try:
+#            t.close()
+#            client.close()
+#            sock.close()
+#        except:
+#            pass
 
 sock=runServer(IP,PORT)
 while 1:
